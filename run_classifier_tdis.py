@@ -1133,10 +1133,10 @@ class prune_function:
                 loss+=loss_dst(model.bert.embeddings.distill_embd,model_t.bert.embeddings.embd)
                 for layer_now in range(distill_new):
                     #attention
-                    loss += lamb[i] * loss_dst(model.bert.encoder.layer[layer_now].attention.self.att,
-                                               model_t.bert.encoder.layer[layer_now*int(distill_old/distill_now+1)-1].attention.self.att)
+                    loss += lamb[layer_now] * loss_dst(model.bert.encoder.layer[layer_now].attention.self.att,
+                                               model_t.bert.encoder.layer[layer_now*int(distill_old/distill_new+1)-1].attention.self.att)
                     #hidden
-                    loss+=lamb[i]*loss_dst(model.bert.encoder.layer[layer_now].distill_out,model_t.bert.encoder.layer[layer_now*int(distill_old/distill_now+1)-1].out)
+                    loss+=lamb[layer_now]*loss_dst(model.bert.encoder.layer[layer_now].distill_out,model_t.bert.encoder.layer[layer_now*int(distill_old/distill_new+1)-1].out)
 
                 if n_gpu > 1:
                     loss = loss.mean()  # mean() to average on multi-gpu.
@@ -1164,7 +1164,7 @@ class prune_function:
                     optimizer.zero_grad()
                     global_step += 1
                 # sparse
-                if step>0:# weight pruning is done here
+                '''if step>0:# weight pruning is done here
                     # prune embd
                     r=args.embd_r
                     embd=model.bert.embeddings.word_embeddings.weight
@@ -1187,7 +1187,7 @@ class prune_function:
                         for i in range(12):
                             r = 1 - target_prune_rate[layer_now * 4 + id[i]] ** (
                                         1. * wr_now / split)  # 1-target_r^{sr_now/split} for each layer
-                            do_sparse(svd_ch[i], r, None, model)
+                            do_sparse(svd_ch[i], r, None, model)'''
                 now_step += 1
                 #if now_step == all_steps:
                     #break
