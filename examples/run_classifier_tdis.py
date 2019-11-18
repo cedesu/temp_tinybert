@@ -881,7 +881,7 @@ class prune_function:
         self.n_gpu=n_gpu
 
         #model_t
-        distill_weight='/home/yujwang/maoyh/sst_distill_weight'
+        distill_weight=args.distill_dir#'/home/yujwang/maoyh/sst_distill_weight'
         distill_weight_file=os.path.join(distill_weight, WEIGHTS_NAME)
         distill_config_file = os.path.join(distill_weight, CONFIG_NAME)
         config = BertConfig(distill_config_file)
@@ -1243,6 +1243,11 @@ def main():
                              "Positive power of 2: static loss scaling value.\n")
     parser.add_argument('--server_ip', type=str, default='', help="Can be used for distant debugging.")
     parser.add_argument('--server_port', type=str, default='', help="Can be used for distant debugging.")
+    parser.add_argument("--distill_dir",
+                        default=None,
+                        type=str,
+                        required=True,
+                        help="Distilled model directory")
     args = parser.parse_args()
 
     func = prune_function(args)
