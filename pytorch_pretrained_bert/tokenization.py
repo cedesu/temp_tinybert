@@ -22,6 +22,12 @@ import os
 import unicodedata
 from io import open
 
+import numpy as np
+import random
+from tqdm import tqdm
+from pytorch_pretrained_bert.modeling import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME,BertForPreTraining
+import torch
+
 from .file_utils import cached_path
 
 logger = logging.getLogger(__name__)
@@ -88,12 +94,137 @@ class BertTokenizer(object):
         self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
         self.max_len = max_len if max_len is not None else int(1e12)
 
+        #aug
+        glove_file='/home/yujwang/maoyh/glove/glove.6B.50d.txt'
+        self.glove_model,self.glove_mapping,self.glove_mapping_rev=self.load_glove_model(glove_file)
+        self.bert_model=self.load_bert()
+        self.num_can=40
+
+    def load_glove_model(self,glove_file):
+        p=0.1
+        f=open(glove_file,'r')
+        n=0
+        for line in f:
+            n+=1
+        #n=1000
+        f.close()
+        f=open(glove_file,'r')
+        model=None
+        mapping=[]
+        mapping_rev={}
+        i=0
+        for _ in tqdm(range(n)):
+            line=f.readline()
+            if random.random()>p:
+                continue
+            split_line=line.split()
+            word=split_line[0]
+            embedding=np.array([float(val) for val in split_line[1:]])
+            if model is None:
+                model=np.array([embedding])
+            else:
+                model=np.append(model,[embedding],axis=0)
+            mapping.append(word)
+            mapping_rev[word]=i
+            i+=1
+        f.close()
+        return model,mapping,mapping_rev
+
+    def load_bert(self):
+        with torch.no_grad():
+            model = BertForPreTraining.from_pretrained('bert-base-uncased').to('cuda')
+        '''if args.fp16:
+            model.half()
+        model.to(device)
+        if args.local_rank != -1:
+            try:
+                from apex.parallel import DistributedDataParallel as DDP
+            except ImportError:
+                raise ImportError(
+                    "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
+            model = DDP(model)
+        elif n_gpu > 1:
+            model = torch.nn.DataParallel(model)'''
+        model.eval()
+        return model
+
     def tokenize(self, text):
         split_tokens = []
         for token in self.basic_tokenizer.tokenize(text):
             for sub_token in self.wordpiece_tokenizer.tokenize(token):
                 split_tokens.append(sub_token)
         return split_tokens
+
+    def tokenize_aug(self, text):
+        p=0.4
+        ori=self.tokenize(text)
+        split_tokens = []
+        tag=[]
+        i=0
+        for token in self.basic_tokenizer.tokenize(text):
+            sub_tokens=self.wordpiece_tokenizer.tokenize(token)
+            i+=len(sub_tokens)
+            if random.random()<p:
+                if len(sub_tokens)>1:
+                    #token_new=self.glove_close(token)
+                    tag.append('g')
+                    #sub_tokens = self.wordpiece_tokenizer.tokenize(token_new)
+                else:
+                    ori[i-1]='[MASK]'
+                    tag.append('b')
+                    #sub_tokens=[self.bert_close(split_tokens+['[MASK]']+ori[i:],i-1)]
+            else:
+                tag.append('')
+        i,j=0,0
+        aug_bert=self.bert_close(ori)
+        for token in self.basic_tokenizer.tokenize(text):
+            sub_tokens = self.wordpiece_tokenizer.tokenize(token)
+            i += len(sub_tokens)
+            if tag[j]=='g':
+                token_new = self.glove_close(token)
+                sub_tokens = self.wordpiece_tokenizer.tokenize(token_new)
+            elif tag[j]=='b':
+                sub_tokens=[aug_bert[i-1]]
+            else:
+                sub_tokens=[ori[i-1]]
+            for sub_token in sub_tokens:
+                split_tokens.append(sub_token)
+            j+=1
+        #print(split_tokens)
+        return split_tokens
+
+    def glove_close(self, token):
+        if token in self.glove_mapping_rev:
+            id=self.glove_mapping_rev[token]
+            dist=np.sum((self.glove_model-self.glove_model[id:id+1,:])**2,axis=-1)
+            candidates=dist.argsort()[:self.num_can]
+            chosen=int(self.num_can*random.random())
+            return self.glove_mapping[candidates[chosen]]
+        else:
+            return token
+
+    def bert_close(self, tokens):
+        max_seq_length=128
+        n=len(tokens)
+        tokens = ["[CLS]"] + tokens + ["[SEP]"]
+        segment_ids = [0] * len(tokens)
+        input_ids = self.convert_tokens_to_ids(tokens)
+        input_mask = [1] * len(input_ids)
+        padding = [0] * (max_seq_length - len(input_ids))
+        input_ids += padding
+        input_mask += padding
+        segment_ids += padding
+        input_ids = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0).cuda()
+        input_mask = torch.tensor(input_mask, dtype=torch.long).unsqueeze(0).cuda()
+        segment_ids = torch.tensor(segment_ids, dtype=torch.long).unsqueeze(0).cuda()
+        with torch.no_grad():
+            logits, _ = self.bert_model(input_ids, segment_ids, input_mask)
+        logits=logits.reshape(128,-1).detach().cpu().numpy()[1:n+1]
+        candidates = logits.argsort(axis=-1)[:,-self.num_can:]
+        chosen=[]
+        for i in range(n):
+            chosen.append(self.ids_to_tokens[candidates[i,int(random.random()*self.num_can)]])
+        return chosen
 
     def convert_tokens_to_ids(self, tokens):
         """Converts a sequence of tokens into ids using the vocab."""
