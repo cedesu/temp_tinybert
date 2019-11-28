@@ -37,8 +37,8 @@ from .file_utils import cached_path
 
 logger = logging.getLogger(__name__)
 
-prune_type=None
-prune_rate=None
+prune_type=["vanilla"]*48
+prune_rate=[1.]*48
 
 distill_old=12
 distill_new=4
